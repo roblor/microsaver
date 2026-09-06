@@ -121,7 +121,7 @@ export class Iteration {
   const review=this.data.reviews.find(r=>r.id===reviewId);const candidate=review?.candidates?.find(c=>c.id===candidateId);
   if(!candidate?.selected)throw new ConnectionError('Add this candidate to today’s plan before submitting an order.',400);
   const transaction=candidate.stance==='SHORT'?'sell':'buy';
-  if(candidate.stance!=='LONG'&&candidate.stance!=='SHORT')throw new ConnectionError('Only LONG or SHORT candidates can be submitted.',400);
+  if(candidate.stance==='AVOID')throw new ConnectionError('AVOID candidates cannot be submitted.',400);
   if(candidate.stance==='SHORT'&&this.data.settings.riskMode!=='ultra')throw new ConnectionError('SHORT orders require yellow Ultra Risk mode.',400);
   const total=Math.max(0,(this.data.portfolio?.credit||0)+(this.data.portfolio?.positions||[]).reduce((sum,p)=>sum+(p.amount||0),0));const used=(this.data.yellowOrders||[]).reduce((sum,o)=>sum+o.amount,0);
   if(this.data.settings.riskMode==='ultra'&&amount+used>total*.2)throw new ConnectionError('This exceeds the yellow-mode 20% allowance based on the refreshed account amounts.',400);
