@@ -1,6 +1,6 @@
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
 import {join} from 'node:path';
-import {readPortfolio,readInstrumentUniverse,ConnectionError} from './connections.mjs';
+import {readPortfolio,readInstrumentUniverse,submitOrder,ConnectionError} from './connections.mjs';
 const supportedModels=new Set(['gpt-5-mini','gpt-5.6-luna','gpt-5.6-terra','gpt-5.6-sol']);
 export function normalize(snapshot){
  const p=snapshot.raw?.clientPortfolio;
@@ -15,7 +15,9 @@ export function settings(input){
  if(typeof input.background!=='boolean')throw new ConnectionError('Invalid background setting.',400);
  const model=input.model??'gpt-5-mini';
  if(typeof model!=='string'||!supportedModels.has(model))throw new ConnectionError('Select a supported research model.',400);
- return {monthlySavings:input.monthlySavings,background:input.background,model,riskProfile:'event-driven-high'};
+ const riskMode=input.riskMode??'standard';
+ if(!['standard','ultra'].includes(riskMode))throw new ConnectionError('Select a supported risk mode.',400);
+ return {monthlySavings:input.monthlySavings,background:input.background,model,riskProfile:'event-driven-high',riskMode};
 }
 export function gates(portfolio){
  const reasons=['Execution disabled for iteration 1.','Verified price history and technical indicators are not connected.','Complete earnings and macro-event coverage is not verified.','Equity, currency conversion and position weights are not yet reconciled.'];
@@ -35,7 +37,7 @@ export function candidateCards(blocks,universe){
  const allowed=new Map(universe.map(item=>[item.symbol,item]));
  for(const block of blocks){
   for(const line of block.text.split(/\r?\n/)){
-   const match=line.match(/^CANDIDATE:\s*([A-Z0-9.:-]{1,15})\s*[—-]\s*(WATCH|LONG|AVOID)\s*[—-]\s*(.+)$/i);
+   const match=line.match(/^CANDIDATE:\s*([A-Z0-9.:-]{1,15})\s*[—-]\s*(WATCH|LONG|SHORT|AVOID)\s*[—-]\s*(.+)$/i);
    if(!match||!allowed.has(match[1].toUpperCase()))continue;
    const symbol=match[1].toUpperCase();
    if(candidates.some(c=>c.symbol===symbol))continue;
@@ -59,13 +61,13 @@ function validQuestion(question){
 export class Iteration {
  constructor({directory,env=process.env,fetcher=fetch,portfolioReader=readPortfolio,universeReader=readInstrumentUniverse}){
  this.directory=directory;this.env=env;this.fetcher=fetcher;this.portfolioReader=portfolioReader;this.universeReader=universeReader;
- this.data={settings:{monthlySavings:0,background:false,model:'gpt-5-mini',riskProfile:'event-driven-high'},portfolio:null,reviews:[],usage:{},chatUsage:{},audit:[]};
+ this.data={settings:{monthlySavings:0,background:false,model:'gpt-5-mini',riskProfile:'event-driven-high',riskMode:'standard'},portfolio:null,reviews:[],usage:{},chatUsage:{},audit:[],yellowOrders:[]};
  this.busy=false;this.error=null;this.writeQueue=Promise.resolve();this.nextRefresh=null;
  }
  async init(){await mkdir(this.directory,{recursive:true});try{this.data=JSON.parse(await readFile(join(this.directory,'state.json'),'utf8'));this.data.settings=settings(this.data.settings);this.data.chatUsage=this.data.chatUsage||{};if(!Array.isArray(this.data.reviews)||!this.data.usage||!Array.isArray(this.data.audit))throw Error();}catch(e){if(e.code!=='ENOENT')throw new Error('Local state cannot be read. Restore state.json before continuing.');}return this;}
  async save(){const body=JSON.stringify(this.data);const operation=this.writeQueue.then(async()=>{await writeFile(join(this.directory,'state.tmp'),body,{mode:0o600});await rename(join(this.directory,'state.tmp'),join(this.directory,'state.json'));});this.writeQueue=operation.catch(()=>{});return operation;}
  audit(action){this.data.audit.unshift({at:new Date().toISOString(),action});this.data.audit=this.data.audit.slice(0,100);}
- snapshot(){return {...this.data,busy:this.busy,error:this.error,nextRefresh:this.nextRefresh,executionEnabled:false,gates:gates(this.data.portfolio),model:this.data.settings.model,dataDirectory:this.directory};}
+ snapshot(){const basis=Math.max(0,(this.data.portfolio?.credit||0)+(this.data.portfolio?.positions||[]).reduce((sum,p)=>sum+(p.amount||0),0));const yellowUsed=(this.data.yellowOrders||[]).reduce((sum,o)=>sum+o.amount,0);return {...this.data,busy:this.busy,error:this.error,nextRefresh:this.nextRefresh,executionEnabled:true,gates:gates(this.data.portfolio),model:this.data.settings.model,dataDirectory:this.directory,ultraBudget:{basis,limit:basis*.2,used:yellowUsed,remaining:Math.max(0,basis*.2-yellowUsed)}};}
  async configure(input){this.data.settings=settings(input);this.audit('Settings updated');await this.save();}
  async refresh(){const result=normalize(await this.portfolioReader(this.env,this.fetcher));this.data.portfolio=result;this.audit('Portfolio refreshed');await this.save();return result;}
  async run(){
@@ -111,6 +113,19 @@ export class Iteration {
   const review=this.data.reviews.find(x=>x.id===reviewId);const candidate=review?.candidates?.find(x=>x.id===candidateId);
   if(!candidate)throw new ConnectionError('Candidate not found.',404);
   candidate.selected=selected;this.audit('Candidate '+candidate.symbol+' '+(selected?'added to':'removed from')+' today\'s plan');await this.save();
+ }
+ async executeOrder({reviewId,candidateId,amount,mode,confirmation}){
+  if(this.busy)throw new ConnectionError('A refresh or research run is already active.',409);
+  if(!['demo','real'].includes(mode))throw new ConnectionError('Choose Demo or Live mode.',400);
+  if(confirmation!==(mode==='real'?'PLACE LIVE':'PLACE DEMO'))throw new ConnectionError('Type the displayed confirmation exactly before submitting an order.',400);
+  const review=this.data.reviews.find(r=>r.id===reviewId);const candidate=review?.candidates?.find(c=>c.id===candidateId);
+  if(!candidate?.selected)throw new ConnectionError('Add this candidate to today’s plan before submitting an order.',400);
+  const transaction=candidate.stance==='SHORT'?'sell':'buy';
+  if(candidate.stance!=='LONG'&&candidate.stance!=='SHORT')throw new ConnectionError('Only LONG or SHORT candidates can be submitted.',400);
+  if(candidate.stance==='SHORT'&&this.data.settings.riskMode!=='ultra')throw new ConnectionError('SHORT orders require yellow Ultra Risk mode.',400);
+  const total=Math.max(0,(this.data.portfolio?.credit||0)+(this.data.portfolio?.positions||[]).reduce((sum,p)=>sum+(p.amount||0),0));const used=(this.data.yellowOrders||[]).reduce((sum,o)=>sum+o.amount,0);
+  if(this.data.settings.riskMode==='ultra'&&amount+used>total*.2)throw new ConnectionError('This exceeds the yellow-mode 20% allowance based on the refreshed account amounts.',400);
+  this.busy=true;try{const result=await submitOrder(this.env,{mode,action:'open',transaction,instrumentId:candidate.instrumentId,amount},this.fetcher);if(this.data.settings.riskMode==='ultra'){this.data.yellowOrders=this.data.yellowOrders||[];this.data.yellowOrders.push({...result,candidateId:candidate.id,symbol:candidate.symbol});}this.audit((mode==='real'?'Live':'Demo')+' '+transaction+' order accepted for '+candidate.symbol);await this.save();return result;}finally{this.busy=false;}
  }
  async tick(){
  if(this.busy)return;

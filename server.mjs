@@ -24,7 +24,8 @@ export function createServer(app,port=8765){
  if(req.url==='/api/review'){await app.decide(input.id,input.status);return json(200,{ok:true});}
  if(req.url==='/api/review-chat'){await app.askReview(input.id,input.question);return json(200,{ok:true});}
  if(req.url==='/api/candidate'){await app.selectCandidate(input.reviewId,input.candidateId,input.selected);return json(200,{ok:true});}
- return json(405,{error:'Trading is disabled. No order endpoint exists.'});
+ if(req.url==='/api/orders'){return json(200,await app.executeOrder(input));}
+ return json(405,{error:'Unsupported local operation.'});
  }
  if(req.method!=='GET')return json(405,{error:'Method disabled.'});
  if(req.url==='/api/state')return json(200,{...app.snapshot(),token,connections:connectionStatus()});

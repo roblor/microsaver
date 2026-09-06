@@ -57,3 +57,17 @@ export async function checkOpenAI(env=process.env,fetcher=fetch){
  if(!Array.isArray(result.data))throw new ConnectionError('Unexpected OpenAI response.');
  return {authenticated:true,checkedAt:new Date().toISOString(),message:'OpenAI authentication succeeded. No analysis was run and no portfolio data was sent. Model access and billing for analysis still need validation.'};
 }
+
+export async function submitOrder(env=process.env,order,fetcher=fetch){
+ if(!env.ETORO_API_KEY||!env.ETORO_USER_KEY)throw new ConnectionError('eToro keys are missing. Run Start-Microsaver.ps1 to load them.',503);
+ if(!order||!['demo','real'].includes(order.mode)||!['buy','sell'].includes(order.transaction)||!['open'].includes(order.action))throw new ConnectionError('Invalid order request.',400);
+ if(!(typeof order.instrumentId==='string'||typeof order.instrumentId==='number')||String(order.instrumentId).length>30)throw new ConnectionError('Invalid eToro instrument.',400);
+ if(!Number.isFinite(order.amount)||order.amount<=0||order.amount>100000)throw new ConnectionError('Order amount must be between 0 and 100,000 USD.',400);
+ const headers={'x-api-key':env.ETORO_API_KEY,'x-user-key':env.ETORO_USER_KEY,'x-request-id':crypto.randomUUID(),'Content-Type':'application/json'};
+ for(const [name,value] of Object.entries(headers)){if(typeof value!=='string'||/[^\x21-\x7e]/.test(value))throw new ConnectionError('Invalid characters in '+name+'. Re-enter the key without spaces, line breaks or non-ASCII characters.',503);}
+ const path=order.mode==='demo'?'/api/v2/trading/execution/demo/orders':'/api/v2/trading/execution/orders';let response;
+ try{response=await fetcher('https://public-api.etoro.com'+path,{method:'POST',headers,redirect:'error',signal:AbortSignal.timeout(20000),body:JSON.stringify({action:'open',transaction:order.transaction,instrumentId:order.instrumentId,orderType:'mkt',amount:order.amount,orderCurrency:'usd'})});}
+ catch(error){throw new ConnectionError('Order request could not reach eToro. No execution result was received.');}
+ if(!response.ok){const hint={401:'eToro rejected the credentials.',403:'eToro denied execution. Check that the key has '+order.mode+' trading permission.',409:'eToro rejected the order because the account state changed.',422:'eToro rejected the order parameters or instrument.',429:'eToro rate limit reached. Try again later.'}[response.status]||'eToro rejected the order request.';throw new ConnectionError(hint,response.status===429?429:502);}
+ return {acceptedAt:new Date().toISOString(),mode:order.mode,transaction:order.transaction,instrumentId:String(order.instrumentId),amount:order.amount,requestId:headers['x-request-id']};
+}
