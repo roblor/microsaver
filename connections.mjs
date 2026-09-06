@@ -69,5 +69,7 @@ export async function submitOrder(env=process.env,order,fetcher=fetch){
  try{response=await fetcher('https://public-api.etoro.com'+path,{method:'POST',headers,redirect:'error',signal:AbortSignal.timeout(20000),body:JSON.stringify({action:'open',transaction:order.transaction,instrumentId:order.instrumentId,orderType:'mkt',amount:order.amount,orderCurrency:'usd'})});}
  catch(error){throw new ConnectionError('Order request could not reach eToro. No execution result was received.');}
  if(!response.ok){const hint={401:'eToro rejected the credentials.',403:'eToro denied execution. Check that the key has '+order.mode+' trading permission.',409:'eToro rejected the order because the account state changed.',422:'eToro rejected the order parameters or instrument.',429:'eToro rate limit reached. Try again later.'}[response.status]||'eToro rejected the order request.';throw new ConnectionError(hint,response.status===429?429:502);}
- return {acceptedAt:new Date().toISOString(),mode:order.mode,transaction:order.transaction,instrumentId:String(order.instrumentId),amount:order.amount,requestId:headers['x-request-id']};
+ let receipt={};try{receipt=await response.json();}catch{}
+ const orderId=[receipt.orderId,receipt.orderID,receipt.id,receipt.data?.orderId].find(value=>typeof value==='string'||typeof value==='number');
+ return {submittedAt:new Date().toISOString(),mode:order.mode,transaction:order.transaction,instrumentId:String(order.instrumentId),amount:order.amount,requestId:headers['x-request-id'],orderId:orderId===undefined?null:String(orderId),providerState:'submitted'};
 }
