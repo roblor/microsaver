@@ -58,6 +58,8 @@ export async function checkOpenAI(env=process.env,fetcher=fetch){
  return {authenticated:true,checkedAt:new Date().toISOString(),message:'OpenAI authentication succeeded. No analysis was run and no portfolio data was sent. Model access and billing for analysis still need validation.'};
 }
 
+function brokerFeedback(body,env){const raw=[body?.message,body?.detail,body?.error?.message,body?.error,body?.data?.message].find(value=>typeof value==='string');if(!raw)return null;return raw.replaceAll(env.ETORO_API_KEY||'','[redacted]').replaceAll(env.ETORO_USER_KEY||'','[redacted]').replace(/\s+/g,' ').trim().slice(0,400)||null;}
+async function orderReceipt(response,env){let text='';try{text=await response.text();}catch{}if(!text)return {};try{return JSON.parse(text);}catch{return {message:text.slice(0,400)};}}
 export async function submitOrder(env=process.env,order,fetcher=fetch){
  if(!env.ETORO_API_KEY||!env.ETORO_USER_KEY)throw new ConnectionError('eToro keys are missing. Run Start-Microsaver.ps1 to load them.',503);
  if(!order||!['demo','real'].includes(order.mode)||!['buy','sell'].includes(order.transaction)||!['open'].includes(order.action))throw new ConnectionError('Invalid order request.',400);
@@ -68,8 +70,10 @@ export async function submitOrder(env=process.env,order,fetcher=fetch){
  const path=order.mode==='demo'?'/api/v2/trading/execution/demo/orders':'/api/v2/trading/execution/orders';let response;
  try{response=await fetcher('https://public-api.etoro.com'+path,{method:'POST',headers,redirect:'error',signal:AbortSignal.timeout(20000),body:JSON.stringify({action:'open',transaction:order.transaction,instrumentId:order.instrumentId,orderType:'mkt',amount:order.amount,orderCurrency:'usd'})});}
  catch(error){throw new ConnectionError('Order request could not reach eToro. No execution result was received.');}
- if(!response.ok){const hint={401:'eToro rejected the credentials.',403:'eToro denied execution. Check that the key has '+order.mode+' trading permission.',409:'eToro rejected the order because the account state changed.',422:'eToro rejected the order parameters or instrument.',429:'eToro rate limit reached. Try again later.'}[response.status]||'eToro rejected the order request.';throw new ConnectionError(hint,response.status===429?429:502);}
- let receipt={};try{receipt=await response.json();}catch{}
+ const receipt=await orderReceipt(response,env);const feedback=brokerFeedback(receipt,env);
+ if(!response.ok){const hint={401:'eToro rejected the credentials.',403:'eToro denied execution. Check that the key has '+order.mode+' trading permission.',409:'eToro rejected the order because the account state changed.',422:'eToro rejected the order parameters or instrument.',429:'eToro rate limit reached. Try again later.'}[response.status]||'eToro rejected the order request.';throw new ConnectionError(hint+(feedback?' eToro: '+feedback:''),response.status===429?429:502);}
+ const providerState=String(receipt.status??receipt.state??receipt.orderStatus??'submitted');
+ if(/reject|fail|error|cancel/i.test(providerState))throw new ConnectionError('eToro reported '+providerState+(feedback?': '+feedback:''),502);
  const orderId=[receipt.orderId,receipt.orderID,receipt.id,receipt.data?.orderId].find(value=>typeof value==='string'||typeof value==='number');
- return {submittedAt:new Date().toISOString(),mode:order.mode,transaction:order.transaction,instrumentId:String(order.instrumentId),amount:order.amount,requestId:headers['x-request-id'],orderId:orderId===undefined?null:String(orderId),providerState:'submitted'};
+ return {submittedAt:new Date().toISOString(),mode:order.mode,transaction:order.transaction,instrumentId:String(order.instrumentId),amount:order.amount,requestId:headers['x-request-id'],orderId:orderId===undefined?null:String(orderId),providerState,providerFeedback:feedback||('HTTP '+response.status+(orderId===undefined?'; eToro did not return an order ID.':''))};
 }
