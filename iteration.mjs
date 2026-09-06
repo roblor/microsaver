@@ -92,6 +92,7 @@ export class Iteration {
  finally{this.busy=false;}
  }
  async decide(id,status){if(!['reviewed','skipped'].includes(status))throw new ConnectionError('Invalid review decision.',400);const review=this.data.reviews.find(x=>x.id===id);if(!review)throw new ConnectionError('Review not found.',404);review.status=status;this.audit('Review marked '+status);await this.save();}
+ async clearHistory(){if(this.busy)throw new ConnectionError('Wait for the current refresh or research run to finish before clearing history.',409);this.data.reviews=[];this.data.trades=[];this.data.yellowOrders=[];this.data.audit=[];this.data.usage={};this.data.chatUsage={};this.error=null;await this.save();}
  async askReview(id,question){
   if(this.busy)throw new ConnectionError('A refresh, research run or question is already active.',409);
   if(!this.env.OPENAI_API_KEY)throw new ConnectionError('OpenAI key missing.',503);

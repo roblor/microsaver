@@ -26,6 +26,7 @@ export function createServer(app,port=8765){
  if(req.url==='/api/candidate'){await app.selectCandidate(input.reviewId,input.candidateId,input.selected);return json(200,{ok:true});}
  if(req.url==='/api/orders'){return json(200,await app.executeOrder(input));}
  if(req.url==='/api/trades/outcome'){await app.recordOutcome(input);return json(200,{ok:true});}
+ if(req.url==='/api/history/clear'){await app.clearHistory();return json(200,{ok:true});}
  return json(405,{error:'Unsupported local operation.'});
  }
  if(req.method!=='GET')return json(405,{error:'Method disabled.'});
