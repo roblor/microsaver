@@ -1,0 +1,10 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {evaluate} from './risk.mjs';
+const base={prices:Array.from({length:60},(_,i)=>100+i*.1+Math.sin(i)),portfolioValue:1000,positionValue:20,cash:100,amount:5,ageHours:0,eventsVerified:true};
+test('missing evidence blocks analysis',()=>assert.equal(evaluate({...base,eventsVerified:false}).decision,'WAIT'));
+test('invalid numbers fail closed',()=>assert.equal(evaluate({...base,amount:NaN}).decision,'BLOCKED'));
+test('stale prices block',()=>assert.ok(evaluate({...base,ageHours:25}).reasons.some(x=>x.includes('freshness'))));
+test('concentration blocks',()=>assert.ok(evaluate({...base,positionValue:100}).reasons.some(x=>x.includes('10%'))));
+test('daily amount blocks',()=>assert.ok(evaluate({...base,amount:11}).reasons.some(x=>x.includes('USD 10'))));
+test('insufficient history blocks',()=>assert.equal(evaluate({...base,prices:[10]}).decision,'BLOCKED'));
+test('leverage blocks',()=>assert.ok(evaluate({...base,leveraged:true}).reasons.some(x=>x.includes('Leverage'))));
+test('execution is disabled',()=>assert.equal(evaluate(base).executionEnabled,false));
