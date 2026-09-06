@@ -33,6 +33,17 @@ export async function readPortfolio(env=process.env,fetcher=fetch){
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new ConnectionError('Unexpected portfolio schema; no portfolio values inferred.');
  return {mode,readOnly:true,receivedAt:new Date().toISOString(),source,raw,notice:'Live provider response. Portfolio normalization and investment analysis are not yet enabled.'};
 }
+export async function readOrderStatus(env=process.env,{mode='real',orderId}={},fetcher=fetch){
+ if(!env.ETORO_API_KEY||!env.ETORO_USER_KEY)throw new ConnectionError('eToro keys are missing. Run Start-Microsaver.ps1 to load them.',503);
+ if(!['real','demo'].includes(mode)||!/^\d{1,20}$/.test(String(orderId)))throw new ConnectionError('Invalid eToro order ID.',400);
+ const root=mode==='demo'?'/api/v2/trading/info/demo/orders:lookup':'/api/v2/trading/info/orders:lookup';
+ const raw=await readJson('https://public-api.etoro.com'+root+'?orderId='+encodeURIComponent(String(orderId)),{'x-api-key':env.ETORO_API_KEY,'x-user-key':env.ETORO_USER_KEY,'x-request-id':crypto.randomUUID()},fetcher);
+ const status=raw?.status&&typeof raw.status==='object'?raw.status:{};
+ const name=typeof status.name==='string'?status.name:'Unknown';
+ const errorMessage=typeof status.errorMessage==='string'?brokerFeedback({message:status.errorMessage},env):null;
+ const positions=Array.isArray(raw?.positionExecutions)?raw.positionExecutions.map(item=>item?.positionId).filter(value=>typeof value==='number'||typeof value==='string').map(String).slice(0,20):[];
+ return {checkedAt:new Date().toISOString(),orderId:String(raw?.orderId??orderId),statusId:Number.isInteger(status.id)?status.id:null,status:name,errorCode:Number.isInteger(status.errorCode)?status.errorCode:null,errorMessage,positionIds:positions,lastUpdate:typeof raw?.lastUpdate==='string'?raw.lastUpdate:null};
+}
 function findInstrumentRows(value,found=[]){
  if(Array.isArray(value)){for(const item of value)findInstrumentRows(item,found);return found;}
  if(!value||typeof value!=='object')return found;
