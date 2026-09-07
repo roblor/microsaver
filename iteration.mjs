@@ -1,6 +1,6 @@
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
 import {join} from 'node:path';
-import {readPortfolio,readInstrumentUniverse,readInstrumentEligibility,readOrderStatus,submitOrder,ConnectionError} from './connections.mjs';
+import {readPortfolio,readInstrumentUniverse,readInstrumentEligibilities,readInstrumentEligibility,readOrderStatus,submitOrder,ConnectionError} from './connections.mjs';
 const supportedModels=new Set(['gpt-5-mini','gpt-5.6-luna','gpt-5.6-terra','gpt-5.6-sol']);
 export function normalize(snapshot){
  const p=snapshot.raw?.clientPortfolio;
@@ -59,8 +59,8 @@ function validQuestion(question){
  return question.trim();
 }
 export class Iteration {
- constructor({directory,env=process.env,fetcher=fetch,portfolioReader=readPortfolio,universeReader=readInstrumentUniverse}){
- this.directory=directory;this.env=env;this.fetcher=fetcher;this.portfolioReader=portfolioReader;this.universeReader=universeReader;
+ constructor({directory,env=process.env,fetcher=fetch,portfolioReader=readPortfolio,universeReader=readInstrumentUniverse,eligibilityReader=readInstrumentEligibilities}){
+ this.directory=directory;this.env=env;this.fetcher=fetcher;this.portfolioReader=portfolioReader;this.universeReader=universeReader;this.eligibilityReader=eligibilityReader;
  this.data={settings:{monthlySavings:0,background:false,model:'gpt-5-mini',riskProfile:'event-driven-high',riskMode:'standard'},portfolio:null,reviews:[],usage:{},chatUsage:{},audit:[],yellowOrders:[],trades:[]};
  this.busy=false;this.error=null;this.writeQueue=Promise.resolve();this.nextRefresh=null;
  }
@@ -76,9 +76,9 @@ export class Iteration {
  const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid'}).format(new Date());
  this.busy=true;this.error=null;
  try{
- const portfolio=await this.refresh();const universe=await this.universeReader(this.env,this.fetcher);
+ const portfolio=await this.refresh();const universe=await this.universeReader(this.env,this.fetcher);const eligibility=[];for(let index=0;index<universe.length;index+=100)eligibility.push(...await this.eligibilityReader(this.env,{mode:'real',instrumentIds:universe.slice(index,index+100).map(item=>item.instrumentId)},this.fetcher));const eligibleById=new Map(eligibility.filter(item=>item.allowOpenPosition&&item.minOrderAmount!==null&&item.minOrderAmount<300).map(item=>[String(item.instrumentId),item]));const affordableUniverse=universe.filter(item=>eligibleById.has(String(item.instrumentId)));if(!affordableUniverse.length)throw new ConnectionError('eToro returned no currently openable instruments with a minimum below 300 USD. No review created.');
  this.data.usage[day]=(this.data.usage[day]||0)+1;this.audit('AI attempt reserved');await this.save();
- const context={asOf:new Date().toISOString(),portfolio,monthlySavingsUSD:this.data.settings.monthlySavings,riskProfile:this.data.settings.riskProfile,riskMode:this.data.settings.riskMode,eligibleEtoroInstruments:universe.map(({instrumentId,symbol})=>({instrumentId,symbol}))};
+ const context={asOf:new Date().toISOString(),portfolio,monthlySavingsUSD:this.data.settings.monthlySavings,riskProfile:this.data.settings.riskProfile,riskMode:this.data.settings.riskMode,eligibleEtoroInstruments:affordableUniverse.map(({instrumentId,symbol})=>({instrumentId,symbol,minOrderAmount:eligibleById.get(String(instrumentId)).minOrderAmount,settlementTypes:eligibleById.get(String(instrumentId)).settlementTypes}))};
  const response=await this.fetcher('https://api.openai.com/v1/responses',{method:'POST',redirect:'error',signal:AbortSignal.timeout(120000),headers:{Authorization:'Bearer '+this.env.OPENAI_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({
  model:this.data.settings.model,store:false,reasoning:{effort:'low'},max_output_tokens:3500,max_tool_calls:4,
  tools:[{type:'web_search',search_context_size:'medium'}],tool_choice:'required',
@@ -86,7 +86,7 @@ export class Iteration {
  input:JSON.stringify(context)})});
  if(!response.ok)throw new ConnectionError(({401:'OpenAI rejected the key.',403:'OpenAI model access denied.',429:'OpenAI quota or rate limit reached. Check API billing.'})[response.status]||'OpenAI request failed (HTTP '+response.status+'). No review created.');
  const result=await response.json();const blocks=parseResearch(result);
- const review={id:crypto.randomUUID(),createdAt:new Date().toISOString(),status:'unread',blocks,candidates:candidateCards(blocks,universe),usage:result.usage||null,portfolioAsOf:portfolio.receivedAt,monthlySavingsUSD:context.monthlySavingsUSD,blocksToTrading:gates(portfolio)};
+ const review={id:crypto.randomUUID(),createdAt:new Date().toISOString(),status:'unread',blocks,candidates:candidateCards(blocks,affordableUniverse).map(candidate=>({...candidate,minOrderAmount:eligibleById.get(String(candidate.instrumentId)).minOrderAmount,settlementTypes:eligibleById.get(String(candidate.instrumentId)).settlementTypes})),usage:result.usage||null,portfolioAsOf:portfolio.receivedAt,monthlySavingsUSD:context.monthlySavingsUSD,blocksToTrading:gates(portfolio)};
  this.data.reviews.unshift(review);this.data.reviews=this.data.reviews.slice(0,30);this.audit('Cited research review created');await this.save();return review;
  }catch(error){this.error=error instanceof ConnectionError?error.message:'Research failed or timed out. No order was submitted.';this.audit(this.error);await this.save();throw new ConnectionError(this.error);}
  finally{this.busy=false;}

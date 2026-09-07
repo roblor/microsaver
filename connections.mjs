@@ -51,16 +51,14 @@ export async function readOrderStatus(env=process.env,{mode='real',orderId}={},f
  const positions=Array.isArray(raw?.positionExecutions)?raw.positionExecutions.map(item=>item?.positionId).filter(value=>typeof value==='number'||typeof value==='string').map(String).slice(0,20):[];
  return {checkedAt:new Date().toISOString(),orderId:String(raw?.orderId??orderId),statusId:Number.isInteger(status.id)?status.id:null,status:name,errorCode:Number.isInteger(status.errorCode)?status.errorCode:null,errorMessage,positionIds:positions,lastUpdate:typeof raw?.lastUpdate==='string'?raw.lastUpdate:null};
 }
-export async function readInstrumentEligibility(env=process.env,{mode='real',instrumentId}={},fetcher=fetch){
+export async function readInstrumentEligibilities(env=process.env,{mode='real',instrumentIds}={},fetcher=fetch){
  if(!env.ETORO_API_KEY||!env.ETORO_USER_KEY)throw new ConnectionError('eToro keys are missing. Run Start-Microsaver.ps1 to load them.',503);
- if(!['real','demo'].includes(mode)||(typeof instrumentId!=='string'&&typeof instrumentId!=='number')||!/^\d{1,20}$/.test(String(instrumentId)))throw new ConnectionError('Invalid eToro instrument.',400);
+ if(!['real','demo'].includes(mode)||!Array.isArray(instrumentIds)||instrumentIds.length<1||instrumentIds.length>100||instrumentIds.some(id=>(typeof id!=='string'&&typeof id!=='number')||!/^\d{1,20}$/.test(String(id))))throw new ConnectionError('Invalid eToro instrument list.',400);
  const path=mode==='demo'?'/api/v2/trading/info/demo/eligibility':'/api/v2/trading/info/eligibility';
- const raw=await postJson('https://public-api.etoro.com'+path,{'x-api-key':env.ETORO_API_KEY,'x-user-key':env.ETORO_USER_KEY,'x-request-id':crypto.randomUUID()},{instrumentIds:[Number(instrumentId)],currency:'USD'},fetcher);
- const eligibility=(raw?.eligibilities||[]).find(item=>String(item?.instrumentId)===String(instrumentId));
- if(!eligibility)throw new ConnectionError('eToro did not return trading eligibility for this instrument.',502);
- const minimums=[eligibility.minPositionExposure,...(eligibility.leverageConfigs||[]).map(config=>config?.minPositionAmount)].filter(value=>typeof value==='number'&&Number.isFinite(value)&&value>0);
- return {instrumentId:String(eligibility.instrumentId),symbol:typeof eligibility.symbol==='string'?eligibility.symbol:null,allowOpenPosition:eligibility.allowOpenPosition===true,minOrderAmount:minimums.length?Math.min(...minimums):null,settlementTypes:[...new Set((eligibility.leverageConfigs||[]).map(config=>config?.settlementType).filter(value=>typeof value==='string'))]};
+ const raw=await postJson('https://public-api.etoro.com'+path,{'x-api-key':env.ETORO_API_KEY,'x-user-key':env.ETORO_USER_KEY,'x-request-id':crypto.randomUUID()},{instrumentIds:instrumentIds.map(Number),currency:'USD'},fetcher);
+ return (raw?.eligibilities||[]).map(eligibility=>{const minimums=[eligibility.minPositionExposure,...(eligibility.leverageConfigs||[]).map(config=>config?.minPositionAmount)].filter(value=>typeof value==='number'&&Number.isFinite(value)&&value>0);return {instrumentId:String(eligibility.instrumentId),symbol:typeof eligibility.symbol==='string'?eligibility.symbol:null,allowOpenPosition:eligibility.allowOpenPosition===true,minOrderAmount:minimums.length?Math.min(...minimums):null,settlementTypes:[...new Set((eligibility.leverageConfigs||[]).map(config=>config?.settlementType).filter(value=>typeof value==='string'))]};});
 }
+export async function readInstrumentEligibility(env=process.env,{mode='real',instrumentId}={},fetcher=fetch){const found=await readInstrumentEligibilities(env,{mode,instrumentIds:[instrumentId]},fetcher);const eligibility=found.find(item=>String(item.instrumentId)===String(instrumentId));if(!eligibility)throw new ConnectionError('eToro did not return trading eligibility for this instrument.',502);return eligibility;}
 function findInstrumentRows(value,found=[]){
  if(Array.isArray(value)){for(const item of value)findInstrumentRows(item,found);return found;}
  if(!value||typeof value!=='object')return found;
