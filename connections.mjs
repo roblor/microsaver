@@ -75,7 +75,7 @@ export async function readInstrumentUniverse(env=process.env,fetcher=fetch){
  const instruments=[];const seen=new Set();
  for(const instrument of findInstrumentRows(raw)){if(!seen.has(String(instrument.instrumentId))){seen.add(String(instrument.instrumentId));instruments.push(instrument);}}
  if(!instruments.length)throw new ConnectionError('eToro instrument catalogue returned no usable symbols. Starting alternatives are blocked.');
- return instruments.slice(0,250);
+ return instruments;
 }
 export async function checkOpenAI(env=process.env,fetcher=fetch){
  if(!env.OPENAI_API_KEY)throw new ConnectionError('OpenAI key is missing. Run Start-Microsaver.ps1 to enter it.',503);

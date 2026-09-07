@@ -58,6 +58,22 @@ function validQuestion(question){
  if(typeof question!=='string'||question.trim().length<1||question.trim().length>1200)throw new ConnectionError('Ask a question between 1 and 1,200 characters.',400);
  return question.trim();
 }
+const pause=milliseconds=>new Promise(resolve=>setTimeout(resolve,milliseconds));
+async function findDirectInstruments(universe,eligibilityReader,env,fetcher,blockedSymbols){
+ const eligible=[];const target=15;
+ for(let index=0;index<universe.length&&eligible.length<target;index+=100){
+  let batch;
+  try{batch=await eligibilityReader(env,{mode:'real',instrumentIds:universe.slice(index,index+100).map(item=>item.instrumentId)},fetcher);}
+  catch(error){
+   if(!(error instanceof ConnectionError)||error.status!==429)throw error;
+   await pause(5000);
+   batch=await eligibilityReader(env,{mode:'real',instrumentIds:universe.slice(index,index+100).map(item=>item.instrumentId)},fetcher);
+  }
+  eligible.push(...batch.filter(item=>item.canOpenDirect&&item.minOrderAmount!==null&&item.minOrderAmount<300&&!blockedSymbols.includes(item.symbol)&&!/\.FUT$/i.test(item.symbol||'')));
+  if(index+100<universe.length&&eligible.length<target)await pause(400);
+ }
+ return eligible;
+}
 export class Iteration {
  constructor({directory,env=process.env,fetcher=fetch,portfolioReader=readPortfolio,universeReader=readInstrumentUniverse,eligibilityReader=readInstrumentEligibilities}){
  this.directory=directory;this.env=env;this.fetcher=fetcher;this.portfolioReader=portfolioReader;this.universeReader=universeReader;this.eligibilityReader=eligibilityReader;
@@ -76,7 +92,7 @@ export class Iteration {
  const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid'}).format(new Date());
  this.busy=true;this.error=null;
  try{
- const portfolio=await this.refresh();const universe=await this.universeReader(this.env,this.fetcher);const eligibility=[];for(let index=0;index<universe.length;index+=100)eligibility.push(...await this.eligibilityReader(this.env,{mode:'real',instrumentIds:universe.slice(index,index+100).map(item=>item.instrumentId)},this.fetcher));const eligibleById=new Map(eligibility.filter(item=>item.canOpenDirect&&item.minOrderAmount!==null&&item.minOrderAmount<300&&!this.data.blockedSymbols.includes(item.symbol)&&!/\.FUT$/i.test(item.symbol||'')).map(item=>[String(item.instrumentId),item]));const affordableUniverse=universe.filter(item=>eligibleById.has(String(item.instrumentId)));if(!affordableUniverse.length)throw new ConnectionError('eToro returned no currently openable direct instruments with a minimum below 300 USD. No review created.');
+ const portfolio=await this.refresh();const universe=await this.universeReader(this.env,this.fetcher);const eligibility=await findDirectInstruments(universe,this.eligibilityReader,this.env,this.fetcher,this.data.blockedSymbols);const eligibleById=new Map(eligibility.map(item=>[String(item.instrumentId),item]));const affordableUniverse=universe.filter(item=>eligibleById.has(String(item.instrumentId)));if(!affordableUniverse.length)throw new ConnectionError('eToro returned no currently openable direct instruments with a minimum below 300 USD. No review created.');
  this.data.usage[day]=(this.data.usage[day]||0)+1;this.audit('AI attempt reserved');await this.save();
  const context={asOf:new Date().toISOString(),portfolio,monthlySavingsUSD:this.data.settings.monthlySavings,riskProfile:this.data.settings.riskProfile,riskMode:this.data.settings.riskMode,eligibleEtoroInstruments:affordableUniverse.map(({instrumentId,symbol})=>({instrumentId,symbol,minOrderAmount:eligibleById.get(String(instrumentId)).minOrderAmount,settlementTypes:eligibleById.get(String(instrumentId)).settlementTypes}))};
  const response=await this.fetcher('https://api.openai.com/v1/responses',{method:'POST',redirect:'error',signal:AbortSignal.timeout(120000),headers:{Authorization:'Bearer '+this.env.OPENAI_API_KEY,'Content-Type':'application/json'},body:JSON.stringify({
