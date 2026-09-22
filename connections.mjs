@@ -38,7 +38,11 @@ export async function readPortfolio(env=process.env,fetcher=fetch){
  const source='https://public-api.etoro.com/api/v1'+path;
  const raw=await readJson(source,{'x-api-key':env.ETORO_API_KEY,'x-user-key':env.ETORO_USER_KEY,'x-request-id':crypto.randomUUID()},fetcher);
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new ConnectionError('Unexpected portfolio schema; no portfolio values inferred.');
- return {mode,readOnly:true,receivedAt:new Date().toISOString(),source,raw,notice:'Live provider response. Portfolio normalization and investment analysis are not yet enabled.'};
+ const pnlPath=mode==='real'?'/trading/info/real/pnl':'/trading/info/demo/pnl';
+ let pnlRaw=null,pnlNotice=null;
+ try{pnlRaw=await readJson('https://public-api.etoro.com/api/v1'+pnlPath,{'x-api-key':env.ETORO_API_KEY,'x-user-key':env.ETORO_USER_KEY,'x-request-id':crypto.randomUUID()},fetcher);}
+ catch(error){pnlNotice=error instanceof ConnectionError?error.message:'eToro P&L is unavailable.';}
+ return {mode,readOnly:true,receivedAt:new Date().toISOString(),source,raw,pnlRaw,pnlNotice,notice:'Live provider response. Portfolio normalization and investment analysis are not yet enabled.'};
 }
 export async function readOrderStatus(env=process.env,{mode='real',orderId}={},fetcher=fetch){
  if(!env.ETORO_API_KEY||!env.ETORO_USER_KEY)throw new ConnectionError('eToro keys are missing. Run Start-Microsaver.ps1 to load them.',503);

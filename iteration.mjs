@@ -6,8 +6,18 @@ export function normalize(snapshot){
  const p=snapshot.raw?.clientPortfolio;
  if(!p||!Array.isArray(p.positions)||!Array.isArray(p.mirrors))throw new ConnectionError('Unsupported portfolio schema. Analysis paused.');
  const number=v=>typeof v==='number'&&Number.isFinite(v)?v:null;
- return {receivedAt:snapshot.receivedAt,mode:snapshot.mode,credit:number(p.credit),equity:null,
- positions:p.positions.map(p=>({instrumentId:p.instrumentID??p.instrumentId??null,amount:number(p.amount),units:number(p.units),leverage:number(p.leverage),isBuy:typeof p.isBuy==='boolean'?p.isBuy:null})),
+ const pnlPositions=snapshot.pnlRaw?.clientPortfolio?.positions;
+ const pnlByPositionId=new Map(Array.isArray(pnlPositions)?pnlPositions.map(position=>[String(position.positionID??position.positionId),position]):[]);
+ const positions=p.positions.map(position=>{
+  const pnlPosition=pnlByPositionId.get(String(position.positionID??position.positionId));
+  const unrealizedPnl=number(pnlPosition?.unrealizedPnL?.pnL);
+  const initialAmount=number(position.initialAmountInDollars)??number(position.amount);
+  const currentValue=number(pnlPosition?.unrealizedPnL?.exposureInAccountCurrency)??(initialAmount!==null&&unrealizedPnl!==null?initialAmount+unrealizedPnl:null);
+  return {positionId:position.positionID??position.positionId??null,instrumentId:position.instrumentID??position.instrumentId??null,amount:number(position.amount),initialAmount,currentValue,unrealizedPnl,valuationAt:typeof pnlPosition?.unrealizedPnL?.timestamp==='string'?pnlPosition.unrealizedPnL.timestamp:null,openedAt:typeof position.openDateTime==='string'?position.openDateTime:null,openRate:number(position.openRate),closeRate:number(pnlPosition?.unrealizedPnL?.closeRate),units:number(position.units),leverage:number(position.leverage),isBuy:typeof position.isBuy==='boolean'?position.isBuy:null,symbol:null,name:null};
+ });
+ const credit=number(p.credit);const totalPositionValue=positions.reduce((sum,position)=>sum+(position.currentValue??position.initialAmount??0),0);
+ return {receivedAt:snapshot.receivedAt,mode:snapshot.mode,credit,equity:credit===null?null:credit+totalPositionValue,pnlAvailable:Array.isArray(pnlPositions),pnlNotice:snapshot.pnlNotice||null,
+ positions,
  copiedPortfolios:p.mirrors.length,pendingOrders:['orders','stockOrders','entryOrders','exitOrders','ordersForOpen','ordersForClose','ordersForCloseMultiple'].reduce((sum,key)=>sum+(Array.isArray(p[key])?p[key].length:0),0)};
 }
 export function settings(input){
@@ -85,7 +95,7 @@ export class Iteration {
  audit(action){this.data.audit.unshift({at:new Date().toISOString(),action});this.data.audit=this.data.audit.slice(0,100);}
  snapshot(){const basis=Math.max(0,(this.data.portfolio?.credit||0)+(this.data.portfolio?.positions||[]).reduce((sum,p)=>sum+(p.amount||0),0));const yellowUsed=(this.data.yellowOrders||[]).reduce((sum,o)=>sum+o.amount,0);const closed=this.data.trades.filter(t=>t.status==='closed');const realized=closed.reduce((sum,t)=>sum+t.realizedPnl,0);return {...this.data,busy:this.busy,error:this.error,nextRefresh:this.nextRefresh,executionEnabled:true,gates:gates(this.data.portfolio),model:this.data.settings.model,dataDirectory:this.directory,ultraBudget:{basis,limit:basis*.2,used:yellowUsed,remaining:Math.max(0,basis*.2-yellowUsed)},learning:{submitted:this.data.trades.length,closed:closed.length,wins:closed.filter(t=>t.realizedPnl>0).length,realizedPnl:realized}};}
  async configure(input){this.data.settings=settings(input);this.audit('Settings updated');await this.save();}
- async refresh(){const result=normalize(await this.portfolioReader(this.env,this.fetcher));this.data.portfolio=result;this.audit('Portfolio refreshed');await this.save();return result;}
+ async refresh(){const result=normalize(await this.portfolioReader(this.env,this.fetcher));const unknown=result.positions.filter(position=>position.instrumentId!==null&&!position.symbol);if(unknown.length){try{const names=new Map((await this.universeReader(this.env,this.fetcher)).map(item=>[String(item.instrumentId),item]));for(const position of unknown){const instrument=names.get(String(position.instrumentId));if(instrument){position.symbol=instrument.symbol;position.name=instrument.name;}}}catch{}}this.data.portfolio=result;this.audit('Portfolio refreshed');await this.save();return result;}
  async run(){
  if(this.busy)throw new ConnectionError('A refresh or research run is already active.',409);
  if(!this.env.OPENAI_API_KEY)throw new ConnectionError('OpenAI key missing.',503);
