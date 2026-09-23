@@ -1,0 +1,108 @@
+.journal-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.journal-metric {
+  padding: 12px;
+  border: 1px solid #dce4df;
+  border-radius: 10px;
+  background: #f7faf8;
+}
+
+.journal-metric span,
+.journal-entry-head span {
+  display: block;
+  color: #65756e;
+  font-size: 12px;
+}
+
+.journal-metric strong { font-size: 18px; }
+.journal-metric.positive strong { color: #16834b; }
+.journal-metric.negative strong { color: #c53b36; }
+
+.journal-method {
+  padding: 12px 14px;
+  border-left: 4px solid #667a72;
+  background: #f1f4f2;
+  font-size: 13px;
+}
+
+#research-journal h3 { margin-top: 28px; }
+.journal-list { display: grid; gap: 12px; }
+
+.research-journal-entry {
+  margin: 0;
+  padding: 17px;
+}
+
+.journal-entry-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.learning-badge {
+  flex: none;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #edf1ef;
+  color: #52665e;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.learning-badge.positive { background: #dff5e7; color: #0c5f38; }
+.learning-badge.negative { background: #fde4e4; color: #9b1c1c; }
+.learning-badge.warning { background: #fff0c7; color: #805b00; }
+
+.journal-rationale { color: #263d35; }
+.journal-finding,
+.journal-latest,
+.journal-notes { margin: 8px 0; font-size: 14px; }
+.journal-latest { padding: 9px 11px; background: #eef5f1; border-radius: 7px; }
+
+.journal-outcome-form {
+  display: grid;
+  grid-template-columns: 150px 1fr auto;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.journal-outcome-form input {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #becfc5;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.journal-outcome-form button { padding: 9px 12px; }
+.journal-error { color: #9b1c1c; }
+
+.holding-assessments {
+  display: grid;
+  gap: 9px;
+  margin: 10px 0 18px;
+}
+
+.holding-assessment {
+  margin: 0;
+  padding: 13px 15px;
+  border-left: 4px solid #16834b;
+  background: #f7fbf8;
+}
+
+.holding-assessment.trade { border-left-color: #c28a00; background: #fffaf0; }
+.holding-assessment.sell { border-left-color: #c53b36; background: #fff7f6; }
+.holding-assessment p { margin: 4px 0 0; }
+
+@media (max-width: 850px) {
+  .journal-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .journal-outcome-form { grid-template-columns: 1fr; }
+}

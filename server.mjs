@@ -43,7 +43,7 @@ export function createServer(app,port=8765){
  const data=await readInstrumentHistory(process.env,{instrumentId,period});marketHistoryCache.set(key,{savedAt:Date.now(),data});return json(200,{...data,cached:false});
  }
  if(req.url==='/api/openai/check')return json(200,await checkOpenAI());
- const paths={'/':'index.html','/app.js':'app.js','/navigation.js':'navigation.js','/positions.js':'positions.js','/style.css':'style.css','/navigation.css':'navigation.css','/positions.css':'positions.css'};
+ const paths={'/':'index.html','/app.js':'app.js','/navigation.js':'navigation.js','/positions.js':'positions.js','/journal.js':'journal.js','/style.css':'style.css','/navigation.css':'navigation.css','/positions.css':'positions.css','/journal.css':'journal.css'};
  if(!paths[req.url])return json(404,{error:'Not found'});
  res.writeHead(200,{'Content-Type':req.url.endsWith('.js')?'text/javascript':req.url.endsWith('.css')?'text/css':'text/html'});
  res.end(await readFile(new URL('./public/'+paths[req.url],import.meta.url)));
