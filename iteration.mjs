@@ -47,7 +47,7 @@ export function candidateCards(blocks,universe){
  const allowed=new Map(universe.map(item=>[item.symbol,item]));
  for(const block of blocks){
   for(const line of block.text.split(/\r?\n/)){
-   const cleanLine=line.replace(/\*\*/g,'').trim();
+   const cleanLine=line.trim().replace(/^[-*]\s+/,'').replace(/^#{1,6}\s*/,'').replace(/\*\*/g,'').trim();
    const match=cleanLine.match(/^CANDIDATE:\s*([A-Z0-9.:-]{1,15})(?:\s*\([^)]{1,40}\))?\s*[—-]\s*(WATCH|LONG|SHORT|AVOID)\s*[—-]\s*(.+)$/i);
    if(!match||!allowed.has(match[1].toUpperCase()))continue;
    const symbol=match[1].toUpperCase();
@@ -68,7 +68,7 @@ export function holdingCards(blocks,positions){
  const assessments=[];
  for(const block of blocks){
   for(const line of block.text.split(/\r?\n/)){
-   const cleanLine=line.replace(/\*\*/g,'').trim();
+   const cleanLine=line.trim().replace(/^[-*]\s+/,'').replace(/^#{1,6}\s*/,'').replace(/\*\*/g,'').trim();
    const match=cleanLine.match(/^HOLDING:\s*([A-Z0-9.:-]{1,15})\s*[—-]\s*(STAY|TRADE|SELL)\s*[—-]\s*(.+)$/i);
    if(!match)continue;
    const symbol=match[1].toUpperCase();const holding=holdings.get(symbol);
