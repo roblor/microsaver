@@ -81,6 +81,29 @@ export async function readInstrumentUniverse(env=process.env,fetcher=fetch){
  if(!instruments.length)throw new ConnectionError('eToro instrument catalogue returned no usable symbols. Starting alternatives are blocked.');
  return instruments;
 }
+const historyPeriods={
+ '1D':{interval:'FiveMinutes',count:120,days:2},
+ '1W':{interval:'OneHour',count:168,days:8},
+ '1M':{interval:'FourHours',count:240,days:32},
+ YTD:{interval:'OneDay',count:370,ytd:true},
+ '1Y':{interval:'OneDay',count:370,days:366},
+};
+export async function readInstrumentHistory(env=process.env,{instrumentId,period='1M'}={},fetcher=fetch){
+ if(!env.ETORO_API_KEY||!env.ETORO_USER_KEY)throw new ConnectionError('eToro keys are missing. Run Start-Microsaver.ps1 to load them.',503);
+ if(!/^\d{1,20}$/.test(String(instrumentId))||!historyPeriods[period])throw new ConnectionError('Invalid market history request.',400);
+ const choice=historyPeriods[period];
+ const path='/api/v1/market-data/instruments/'+encodeURIComponent(String(instrumentId))+'/history/candles/asc/'+choice.interval+'/'+choice.count;
+ const raw=await readJson('https://public-api.etoro.com'+path,{'x-api-key':env.ETORO_API_KEY,'x-user-key':env.ETORO_USER_KEY,'x-request-id':crypto.randomUUID()},fetcher);
+ const group=Array.isArray(raw?.candles)?raw.candles.find(item=>String(item?.instrumentId??item?.instrumentID)===String(instrumentId))||raw.candles[0]:null;
+ const candles=Array.isArray(group?.candles)?group.candles:[];
+ const now=Date.now();
+ const start=choice.ytd?Date.UTC(new Date(now).getUTCFullYear(),0,1):now-choice.days*86400000;
+ let points=candles.map(item=>({time:typeof item?.fromDate==='string'?item.fromDate:null,value:Number(item?.close)})).filter(item=>item.time&&Number.isFinite(item.value)&&Date.parse(item.time)>=start).sort((a,b)=>Date.parse(a.time)-Date.parse(b.time));
+ if(!points.length)points=candles.map(item=>({time:typeof item?.fromDate==='string'?item.fromDate:null,value:Number(item?.close)})).filter(item=>item.time&&Number.isFinite(item.value)).sort((a,b)=>Date.parse(a.time)-Date.parse(b.time));
+ if(!points.length)throw new ConnectionError('eToro returned no usable price history for this instrument.',502);
+ const first=points[0].value,last=points.at(-1).value,change=last-first;
+ return {instrumentId:String(instrumentId),period,interval:choice.interval,points,first,last,change,changePercent:first?change/first*100:null,asOf:points.at(-1).time};
+}
 export async function checkOpenAI(env=process.env,fetcher=fetch){
  if(!env.OPENAI_API_KEY)throw new ConnectionError('OpenAI key is missing. Run Start-Microsaver.ps1 to enter it.',503);
  const result=await readJson('https://api.openai.com/v1/models',{Authorization:'Bearer '+env.OPENAI_API_KEY},fetcher);

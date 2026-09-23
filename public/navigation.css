@@ -1,0 +1,72 @@
+.app-layout {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.side-menu {
+  position: sticky;
+  top: 150px;
+  padding: 12px;
+  border: 1px solid #dce4df;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.side-menu .review-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+
+.side-menu button {
+  width: 100%;
+  padding: 11px 13px;
+  text-align: left;
+  color: #285243;
+  background: transparent;
+}
+
+.side-menu button:hover {
+  background: #eef5f1;
+}
+
+.side-menu button[aria-current="page"] {
+  color: #fff;
+  background: #21664c;
+}
+
+.app-pages {
+  min-width: 0;
+}
+
+.app-pages > section,
+.app-pages > article {
+  margin-top: 0;
+}
+
+@media (max-width: 560px) {
+  .app-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .side-menu {
+    position: sticky;
+    top: 61px;
+    z-index: 19;
+    overflow-x: auto;
+    padding: 8px;
+  }
+
+  .side-menu .review-tabs {
+    flex-direction: row;
+    width: max-content;
+  }
+
+  .side-menu button {
+    width: auto;
+    white-space: nowrap;
+  }
+}

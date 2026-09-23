@@ -2,10 +2,11 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import {join} from 'node:path';
-import {connectionStatus,readPortfolio,checkOpenAI,ConnectionError} from './connections.mjs';
+import {connectionStatus,readPortfolio,readInstrumentHistory,checkOpenAI,ConnectionError} from './connections.mjs';
 import {Iteration} from './iteration.mjs';
 export function createServer(app,port=8765){
  const token=crypto.randomUUID();
+ const marketHistoryCache=new Map();
  return http.createServer(async(req,res)=>{
  const json=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));};
  res.setHeader('Cache-Control','no-store');res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','no-referrer');
@@ -35,8 +36,14 @@ export function createServer(app,port=8765){
  if(req.url==='/api/state')return json(200,{...app.snapshot(),token,connections:connectionStatus()});
  if(req.url==='/api/connections')return json(200,connectionStatus());
  if(req.url==='/api/etoro/portfolio')return json(200,await readPortfolio());
+ if(req.url.startsWith('/api/market-history?')){
+ const query=new URL(req.url,'http://127.0.0.1').searchParams;
+ const instrumentId=query.get('instrumentId')||'';const period=query.get('period')||'1M';const key=instrumentId+':'+period;const cached=marketHistoryCache.get(key);
+ if(cached&&Date.now()-cached.savedAt<300000)return json(200,{...cached.data,cached:true});
+ const data=await readInstrumentHistory(process.env,{instrumentId,period});marketHistoryCache.set(key,{savedAt:Date.now(),data});return json(200,{...data,cached:false});
+ }
  if(req.url==='/api/openai/check')return json(200,await checkOpenAI());
- const paths={'/':'index.html','/app.js':'app.js','/style.css':'style.css'};
+ const paths={'/':'index.html','/app.js':'app.js','/navigation.js':'navigation.js','/positions.js':'positions.js','/style.css':'style.css','/navigation.css':'navigation.css','/positions.css':'positions.css'};
  if(!paths[req.url])return json(404,{error:'Not found'});
  res.writeHead(200,{'Content-Type':req.url.endsWith('.js')?'text/javascript':req.url.endsWith('.css')?'text/css':'text/html'});
  res.end(await readFile(new URL('./public/'+paths[req.url],import.meta.url)));
