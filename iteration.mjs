@@ -47,7 +47,8 @@ export function candidateCards(blocks,universe){
  const allowed=new Map(universe.map(item=>[item.symbol,item]));
  for(const block of blocks){
   for(const line of block.text.split(/\r?\n/)){
-   const match=line.match(/^CANDIDATE:\s*([A-Z0-9.:-]{1,15})(?:\s*\([^)]{1,40}\))?\s*[—-]\s*(WATCH|LONG|SHORT|AVOID)\s*[—-]\s*(.+)$/i);
+   const cleanLine=line.replace(/\*\*/g,'').trim();
+   const match=cleanLine.match(/^CANDIDATE:\s*([A-Z0-9.:-]{1,15})(?:\s*\([^)]{1,40}\))?\s*[—-]\s*(WATCH|LONG|SHORT|AVOID)\s*[—-]\s*(.+)$/i);
    if(!match||!allowed.has(match[1].toUpperCase()))continue;
    const symbol=match[1].toUpperCase();
    if(candidates.some(c=>c.symbol===symbol))continue;
@@ -67,7 +68,8 @@ export function holdingCards(blocks,positions){
  const assessments=[];
  for(const block of blocks){
   for(const line of block.text.split(/\r?\n/)){
-   const match=line.match(/^HOLDING:\s*([A-Z0-9.:-]{1,15})\s*[—-]\s*(STAY|TRADE|SELL)\s*[—-]\s*(.+)$/i);
+   const cleanLine=line.replace(/\*\*/g,'').trim();
+   const match=cleanLine.match(/^HOLDING:\s*([A-Z0-9.:-]{1,15})\s*[—-]\s*(STAY|TRADE|SELL)\s*[—-]\s*(.+)$/i);
    if(!match)continue;
    const symbol=match[1].toUpperCase();const holding=holdings.get(symbol);
    if(!holding||assessments.some(item=>item.symbol===symbol))continue;
@@ -166,6 +168,23 @@ export class Iteration {
  finally{this.busy=false;}
  }
  async decide(id,status){if(!['reviewed','skipped'].includes(status))throw new ConnectionError('Invalid review decision.',400);const review=this.data.reviews.find(x=>x.id===id);if(!review)throw new ConnectionError('Review not found.',404);review.status=status;this.audit('Review marked '+status);await this.save();}
+ async restoreReviewCards(id){
+  if(this.busy)throw new ConnectionError('Wait for the current refresh or research run to finish before restoring review cards.',409);
+  const review=this.data.reviews.find(item=>item.id===id);if(!review)throw new ConnectionError('Review not found.',404);
+  if((review.candidates||[]).length)return review;
+  this.busy=true;
+  try{
+   const universe=await this.universeReader(this.env,this.fetcher);
+   const parsed=candidateCards(review.blocks||[],universe).filter(candidate=>!this.data.blockedSymbols.includes(candidate.symbol)&&!/\.FUT$/i.test(candidate.symbol));
+   if(!parsed.length)throw new ConnectionError('This review contains no catalogue-matched alternatives to restore.',422);
+   const eligibility=await this.eligibilityReader(this.env,{mode:'real',instrumentIds:parsed.map(candidate=>candidate.instrumentId)},this.fetcher);
+   const byId=new Map(eligibility.map(item=>[String(item.instrumentId),item]));
+   review.candidates=parsed.filter(candidate=>{const item=byId.get(String(candidate.instrumentId));return item?.canOpenDirect&&item.minOrderAmount!==null&&item.minOrderAmount<300&&(this.data.settings.riskMode!=='standard'||item.settlementTypes?.includes('real'));}).map(candidate=>{const item=byId.get(String(candidate.instrumentId));return {...candidate,name:candidate.name||item.name||null,region:candidate.region||regionForSymbol(candidate.symbol),minOrderAmount:item.minOrderAmount,settlementTypes:item.settlementTypes};});
+   review.holdingAssessments=holdingCards(review.blocks||[],this.data.portfolio?.positions||[]);
+   if(!review.candidates.length)throw new ConnectionError('No alternatives in this review currently pass eToro direct-trading eligibility checks.',422);
+   this.audit('Restored eligible candidate cards for a saved review');await this.save();return review;
+  }finally{this.busy=false;}
+ }
  async clearHistory(){if(this.busy)throw new ConnectionError('Wait for the current refresh or research run to finish before clearing history.',409);this.data.reviews=[];this.data.trades=[];this.data.yellowOrders=[];this.data.audit=[];this.data.usage={};this.data.chatUsage={};this.error=null;await this.save();}
  async askReview(id,question){
   if(this.busy)throw new ConnectionError('A refresh, research run or question is already active.',409);

@@ -23,6 +23,7 @@ export function createServer(app,port=8765){
  if(req.url==='/api/refresh'){if(app.busy)return json(409,{error:'Research is running.'});app.busy=true;try{await app.refresh();app.error=null;}finally{app.busy=false;}return json(200,{ok:true});}
  if(req.url==='/api/research'){if(app.busy)return json(409,{error:'Research is running.'});void app.run().catch(e=>{app.error=e instanceof ConnectionError?e.message:'Research failed.';});return json(202,{ok:true});}
  if(req.url==='/api/review'){await app.decide(input.id,input.status);return json(200,{ok:true});}
+ if(req.url==='/api/review/restore-cards')return json(200,await app.restoreReviewCards(input.id));
  if(req.url==='/api/review-chat'){await app.askReview(input.id,input.question);return json(200,{ok:true});}
  if(req.url==='/api/candidate'){await app.selectCandidate(input.reviewId,input.candidateId,input.selected);return json(200,{ok:true});}
  if(req.url==='/api/orders'){return json(200,await app.executeOrder(input));}
