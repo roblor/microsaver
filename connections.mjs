@@ -39,10 +39,20 @@ export async function readPortfolio(env=process.env,fetcher=fetch){
  const raw=await readJson(source,{'x-api-key':env.ETORO_API_KEY,'x-user-key':env.ETORO_USER_KEY,'x-request-id':crypto.randomUUID()},fetcher);
  if(!raw||typeof raw!=='object'||Array.isArray(raw))throw new ConnectionError('Unexpected portfolio schema; no portfolio values inferred.');
  const pnlPath=mode==='real'?'/trading/info/real/pnl':'/trading/info/demo/pnl';
- let pnlRaw=null,pnlNotice=null;
+ let pnlRaw=null,pnlNotice=null,accountBalances=null,balanceNotice=null;
  try{pnlRaw=await readJson('https://public-api.etoro.com/api/v1'+pnlPath,{'x-api-key':env.ETORO_API_KEY,'x-user-key':env.ETORO_USER_KEY,'x-request-id':crypto.randomUUID()},fetcher);}
  catch(error){pnlNotice=error instanceof ConnectionError?error.message:'eToro P&L is unavailable.';}
- return {mode,readOnly:true,receivedAt:new Date().toISOString(),source,raw,pnlRaw,pnlNotice,notice:'Live provider response. Portfolio normalization and investment analysis are not yet enabled.'};
+ try{accountBalances=await readAccountBalances(env,fetcher);}
+ catch(error){balanceNotice=error instanceof ConnectionError?error.message:'eToro account balances are unavailable.';}
+ return {mode,readOnly:true,receivedAt:new Date().toISOString(),source,raw,pnlRaw,pnlNotice,accountBalances,balanceNotice,notice:'Live provider response. Portfolio normalization and investment analysis are not yet enabled.'};
+}
+export async function readAccountBalances(env=process.env,fetcher=fetch){
+ if(!env.ETORO_API_KEY||!env.ETORO_USER_KEY)throw new ConnectionError('eToro keys are missing. Run Start-Microsaver.ps1 to load them.',503);
+ const query=new URLSearchParams({accountTypes:'Trading,Cash',displayCurrency:'EUR',includeZeroBalances:'true',expand:'equityDetails'});
+ const raw=await readJson('https://public-api.etoro.com/api/v1/balances?'+query.toString(),{'x-api-key':env.ETORO_API_KEY,'x-user-key':env.ETORO_USER_KEY,'x-request-id':crypto.randomUUID()},fetcher);
+ if(!raw||typeof raw!=='object'||!Array.isArray(raw.balances))throw new ConnectionError('eToro returned an unsupported account-balance schema.');
+ const number=value=>typeof value==='number'&&Number.isFinite(value)?value:null;
+ return {receivedAt:new Date().toISOString(),displayCurrency:typeof raw.displayCurrency==='string'?raw.displayCurrency:'EUR',totalBalance:number(raw.totalBalance),accounts:raw.balances.map(account=>({accountType:typeof account.accountType==='string'?account.accountType:null,subType:typeof account.subType==='string'?account.subType:null,currency:typeof account.currency==='string'?account.currency:null,balance:number(account.balance),displayBalance:number(account.displayBalance),displayCurrency:typeof account.displayCurrency==='string'?account.displayCurrency:null,available:number(account.equityDetails?.available),frozenCash:number(account.equityDetails?.frozenCash)}))};
 }
 export async function readOrderStatus(env=process.env,{mode='real',orderId}={},fetcher=fetch){
  if(!env.ETORO_API_KEY||!env.ETORO_USER_KEY)throw new ConnectionError('eToro keys are missing. Run Start-Microsaver.ps1 to load them.',503);

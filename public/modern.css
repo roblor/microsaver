@@ -120,7 +120,7 @@ main > section.grid:not(#today-view) { margin: 0 0 18px; }
 }
 
 body main > section.grid:first-of-type {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 body main > section.grid:first-of-type article {
@@ -149,7 +149,7 @@ body main > section.grid:first-of-type label {
   font-weight: 600;
 }
 
-body main > section.grid:first-of-type h2 {
+body main > section.grid:first-of-type h2, body main > section.grid:first-of-type .summary-value {
   margin: 4px 0 0;
   color: #193c30;
   font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
@@ -339,7 +339,7 @@ body label { color: #66776e; font-size: 12px; font-weight: 600; }
   main > h1 { font-size: 34px; letter-spacing: -1.4px; }
   body main > section.grid:first-of-type { gap: 8px; }
   body main > section.grid:first-of-type article { min-height: 91px; padding: 13px 12px; }
-  body main > section.grid:first-of-type h2 { font-size: 20px; }
+  body main > section.grid:first-of-type h2, body main > section.grid:first-of-type .summary-value { font-size: 20px; }
   body main > section.grid:first-of-type label { font-size: 10px; }
   .workspace-toolbar { top: 62px; display: block; padding: 8px 0; }
   .workspace-toolbar .actions { gap: 6px; }
